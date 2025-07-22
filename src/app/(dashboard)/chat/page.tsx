@@ -12,7 +12,7 @@ export default function Page() {
   const [messages, setMessages] = useState<Message[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const ai = new GoogleGenAI({
-    apiKey: 'AIzaSyAzQe-QOq2Zshp1GTsvvN9IVn32t8A3Ox4'
+    apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENAI_API_KEY || "",
   });
 
   const chats = ai.chats.create({
