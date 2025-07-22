@@ -2,6 +2,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { useEffect, useMemo, useRef, useState } from "react";
+import Markdown from "react-markdown";
 
 type Message = {
   role: "model" | "user";
@@ -12,6 +13,7 @@ export default function Page() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const userHasScrolledUpRef = useRef(false);
 
   const ai = useMemo(
     () =>
@@ -24,21 +26,31 @@ export default function Page() {
   const chats = useMemo(
     () =>
       ai.chats.create({
-        model: "gemini-1.5-flash",
+        model: "gemini-2.5-flash",
         history: [],
       }),
     [ai],
   );
 
   useEffect(() => {
-    if (scrollContainerRef.current) {
+    if (scrollContainerRef.current && !userHasScrolledUpRef.current) {
       scrollContainerRef.current.scrollTop =
         scrollContainerRef.current.scrollHeight;
     }
   }, [messages]);
 
+  const handleScroll = () => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50; // 50px tolerance
+      userHasScrolledUpRef.current = !isAtBottom;
+    }
+  };
+
   const handleSendMessage = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    userHasScrolledUpRef.current = false; // Re-enable auto-scroll on new message
     const formData = new FormData(e.currentTarget);
     const text = formData.get("text") as string;
     if (text.trim() && !isLoading) {
@@ -87,17 +99,20 @@ export default function Page() {
     <div className="h-full flex items-center flex-col">
       <div
         ref={scrollContainerRef}
+        onScroll={handleScroll}
         className="flex w-full flex-1 justify-center overflow-auto my-4"
       >
         <div className="flex w-full md:max-w-3xl px-4 flex-col gap-5">
           {messages.map((msg, index) => (
             <div
               key={index}
-              className={`rounded-2xl p-5 ${
-                msg.role === "user" ? "self-end bg-accent max-w-4/5" : "self-start w-full"
+              className={`rounded-2xl p-5 prose dark:prose-invert ${
+                msg.role === "user"
+                  ? "self-end bg-accent max-w-4/5"
+                  : "self-start w-full"
               }`}
             >
-              {msg.text}
+              <Markdown>{msg.text}</Markdown>
             </div>
           ))}
         </div>
