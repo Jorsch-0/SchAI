@@ -1,7 +1,7 @@
 "use client";
 
 import { GoogleGenAI } from "@google/genai";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Message = {
   role: "model" | "user";
@@ -10,15 +10,25 @@ type Message = {
 
 export default function Page() {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const ai = new GoogleGenAI({
-    apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENAI_API_KEY || "",
-  });
 
-  const chats = ai.chats.create({
-    model: "gemini-2.5-flash",
-    history: [],
-  });
+  const ai = useMemo(
+    () =>
+      new GoogleGenAI({
+        apiKey: process.env.NEXT_PUBLIC_GOOGLE_GENAI_API_KEY || "",
+      }),
+    [],
+  );
+
+  const chats = useMemo(
+    () =>
+      ai.chats.create({
+        model: "gemini-1.5-flash",
+        history: [],
+      }),
+    [ai],
+  );
 
   useEffect(() => {
     if (scrollContainerRef.current) {
@@ -31,7 +41,7 @@ export default function Page() {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const text = formData.get("text") as string;
-    if (text.trim()) {
+    if (text.trim() && !isLoading) {
       setMessages([...messages, { role: "user", text }]);
       e.currentTarget.reset();
       askAI(text);
@@ -39,25 +49,37 @@ export default function Page() {
   };
 
   const askAI = async (text: string) => {
+    setIsLoading(true);
+    setMessages((prev) => [...prev, { role: "model", text: "" }]);
+
     try {
-      const response = await chats.sendMessage({
+      const stream = await chats.sendMessageStream({
         message: text,
       });
 
-      const result = response.text
-
-      if (result) {
-        setMessages((prevMessages) => [
-          ...prevMessages,
-          { role: "model", text: result },
-        ]);
+      for await (const chunk of stream) {
+        const chunkText = chunk.text;
+        setMessages((prevMessages) => {
+          const lastMessage = prevMessages[prevMessages.length - 1];
+          const updatedLastMessage = {
+            ...lastMessage,
+            text: lastMessage.text + chunkText,
+          };
+          return [...prevMessages.slice(0, -1), updatedLastMessage];
+        });
       }
     } catch (error) {
       console.error("Error sending message to AI:", error);
-      setMessages((prevMessages) => [
-        ...prevMessages,
-        { role: "model", text: "Sorry, something went wrong." },
-      ]);
+      setMessages((prevMessages) => {
+        const lastMessage = prevMessages[prevMessages.length - 1];
+        const updatedLastMessage = {
+          ...lastMessage,
+          text: "Sorry, something went wrong.",
+        };
+        return [...prevMessages.slice(0, -1), updatedLastMessage];
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -67,12 +89,12 @@ export default function Page() {
         ref={scrollContainerRef}
         className="flex w-full flex-1 justify-center overflow-auto my-4"
       >
-        <div className="flex w-full md:w-1/2 px-4 flex-col gap-5">
+        <div className="flex w-full md:max-w-3xl px-4 flex-col gap-5">
           {messages.map((msg, index) => (
             <div
               key={index}
-              className={`max-w-4/5 rounded-2xl p-5 ${
-                msg.role === "user" ? "self-end bg-accent" : "self-start"
+              className={`rounded-2xl p-5 ${
+                msg.role === "user" ? "self-end bg-accent max-w-4/5" : "self-start w-full"
               }`}
             >
               {msg.text}
@@ -81,7 +103,7 @@ export default function Page() {
         </div>
       </div>
       <form
-        className="flex w-full md:w-1/2 items-center gap-4 border-t p-4"
+        className="flex w-full md:max-w-3xl items-center gap-4 border-t p-4"
         onSubmit={handleSendMessage}
       >
         {/* This input remains hidden and is triggered by the button below. */}
@@ -92,6 +114,7 @@ export default function Page() {
           onClick={() => document.getElementById("file")?.click()}
           className="rounded-full p-2 text-gray-500 transition-colors hover:bg-gray-100"
           aria-label="Attach file"
+          disabled={isLoading}
         >
           {/* Replace with an actual Paperclip icon */}
           <svg
@@ -114,11 +137,13 @@ export default function Page() {
           name="text"
           placeholder="Ask anything..."
           className="flex-1 rounded-full border bg-background px-4 py-2 focus:outline-none focus:ring-2 focus:ring-ring"
+          disabled={isLoading}
         />
         <button
           type="submit"
           className="rounded-full bg-primary p-2 text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           aria-label="Send message"
+          disabled={isLoading}
         >
           {/* Replace with an actual ArrowUp icon */}
           <svg
